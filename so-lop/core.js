@@ -133,6 +133,11 @@ export function monthSummary(group, month, current) {
 }
 /** Số tiền của một lượt đóng: số đã lưu, nếu không có thì lấy học phí nhóm. */
 export function payAmount(group, p) { return Number.isInteger(p.amount) ? p.amount : (group.fee || 0); }
+/** Đổi học phí nhóm; các lần đóng cũ giữ nguyên số tiền theo học phí trước đó. */
+export function setFee(group, fee) {
+  if (group.fee && group.fee !== fee) for (const s of group.students) for (const p of Object.values(s.payments)) if (!Number.isInteger(p.amount)) p.amount = group.fee;
+  group.fee = fee;
+}
 /** Học sinh còn nợ: tháng đã kết thúc chưa đóng + buổi đã dạy của tháng đang học (học phí ÷ 8 mỗi buổi). */
 export function debtOf(group, student, cal) {
   const fee = group.fee || 0, months = [];
@@ -190,6 +195,7 @@ export function validate(data) {
 function validateStrict(data) {
   if (!data || data.version !== DATA_VERSION || !Array.isArray(data.groups) || data.groups.length > 500 || !Array.isArray(data.holidays)) throw Error('Tệp không đúng định dạng Sổ lớp.');
   if (typeof data.updatedAt !== 'string') throw Error('Tệp không đúng định dạng Sổ lớp.');
+  if (data.defaultFee !== undefined && data.defaultFee !== null && !(Number.isInteger(data.defaultFee) && data.defaultFee >= 0 && data.defaultFee <= 1e9)) throw Error('Học phí chung không hợp lệ.');
   const ids = new Set();
   const id = x => { if (typeof x !== 'string' || !x.length || x.length > 100 || ids.has(x)) throw Error('Mã dữ liệu không hợp lệ.'); ids.add(x); };
   const name = x => { if (typeof x !== 'string' || !x.trim() || x.length > 120) throw Error('Tên không hợp lệ.'); };

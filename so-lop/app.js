@@ -3,7 +3,7 @@ import { buildXlsx, XLSX_MIME } from './xlsx.js';
 import { feeSheet, scheduleSheet, paymentsSheet, printHtml, groupLine } from './report.js';
 import { createSync } from './sync.js';
 
-const KEY = 'so-lop-v2', OLD_KEY = 'so-lop-v1', APP_VERSION = '2.1';
+const KEY = 'so-lop-v2', OLD_KEY = 'so-lop-v1', APP_VERSION = '2.2';
 const $ = s => document.querySelector(s);
 const app = $('#app'), sheet = $('#sheet');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -40,7 +40,7 @@ function replaceData(d) { C.validate(d); save(d); data = d; storageError = ''; r
 function commitUndoable(message, change) {
   const before = structuredClone(data);
   commit(change);
-  toast(message, { action: 'Hoàn tác', fn: () => commit(d => { d.groups = before.groups; d.holidays = before.holidays; }) });
+  toast(message, { action: 'Hoàn tác', fn: () => commit(d => { d.groups = before.groups; d.holidays = before.holidays; d.defaultFee = before.defaultFee; }) });
 }
 
 const sync = createSync({
@@ -307,6 +307,10 @@ ${st.state === 'conflict' ? `<button class="btn primary wide" data-action="resol
 <form id="drive-form"><label class="field"><span>Địa chỉ ứng dụng web</span><input name="url" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec" required></label>
 <label class="field"><span>Mã kết nối</span><input name="key" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="20 ký tự" required></label>
 <p class="error" id="drive-error" role="alert"></p><button class="btn primary wide" type="submit">Kết nối Google Drive</button></form>`}</section>
+<h2 class="section">Học phí chung</h2>
+<section class="card"><form id="fee-all-form"><label class="field" style="margin-top:0"><span>Học phí mỗi tháng cho tất cả nhóm</span><input name="fee" id="fee-all" inputmode="numeric" placeholder="Ví dụ: 400.000" value="${feeText(data.defaultFee)}" data-focus="fee-all"><em class="suffix">đ</em></label>
+<p class="note">Nhóm nào khác học phí, bạn vào nhóm đó sửa riêng. Nhóm tạo mới tự điền sẵn số này.</p><p class="error" role="alert"></p>
+<button class="btn primary wide" type="submit" ${data.groups.length ? '' : 'disabled'}>Áp dụng cho ${data.groups.length} nhóm</button></form></section>
 <h2 class="section">Tệp sao lưu</h2>
 <section class="list">
 <button class="row" data-action="export-json">${ic('share')}<span class="row-main"><strong>Tải tệp sao lưu</strong><small>Toàn bộ nhóm, lịch và học phí</small></span></button>
@@ -361,7 +365,7 @@ function groupSheet(edit) {
 <label class="field"><span>Tên nhóm</span><input name="name" required maxlength="120" placeholder="Ví dụ: Toán 8 – tối" value="${esc(g?.name || '')}"></label>
 ${edit ? '' : `<label class="field"><span>Ngày bắt đầu</span><input name="start" type="date" required value="${today()}"></label><div class="field"><span>Hai ngày học mỗi tuần</span>${daysPicker()}</div>`}
 <div class="field-row"><label class="field"><span>Giờ bắt đầu</span><input name="tstart" type="time" value="${g?.time.start || ''}"></label><label class="field"><span>Giờ kết thúc</span><input name="tend" type="time" value="${g?.time.end || ''}"></label></div>
-<label class="field"><span>Học phí mỗi tháng (không bắt buộc)</span><input name="fee" inputmode="numeric" placeholder="Ví dụ: 400.000" value="${feeText(g?.fee)}"><em class="suffix">đ</em></label>
+<label class="field"><span>Học phí mỗi tháng (không bắt buộc)</span><input name="fee" inputmode="numeric" placeholder="Ví dụ: 400.000" value="${feeText(edit ? g?.fee : data.defaultFee)}"><em class="suffix">đ</em></label>
 ${errBox}<button class="btn primary wide" type="submit">${edit ? 'Lưu thay đổi' : 'Tạo nhóm'}</button></form>`, root => {
     if (!edit) bindDays(root);
     bindFee(root);
@@ -370,7 +374,7 @@ ${errBox}<button class="btn primary wide" type="submit">${edit ? 'Lưu thay đ�
       if (!name) throw Error('Hãy nhập tên nhóm.');
       if (time.end && !time.start) throw Error('Hãy nhập giờ bắt đầu.');
       if (time.start && time.end && time.end <= time.start) throw Error('Giờ kết thúc phải sau giờ bắt đầu.');
-      if (edit) { commit(d => Object.assign(d.groups.find(x => x.id === g.id), { name, time, fee })); closeSheet(); toast('Đã lưu nhóm học.'); return; }
+      if (edit) { commit(d => { const x = d.groups.find(y => y.id === g.id); Object.assign(x, { name, time }); C.setFee(x, fee); }); closeSheet(); toast('Đã lưu nhóm học.'); return; }
       const start = f.get('start'), days = readDays(f), id = uid();
       if (!C.validDate(start)) throw Error('Hãy chọn ngày bắt đầu.');
       commit(d => d.groups.push({ id, name, start, time, fee, schedules: [{ from: start, days: days.sort() }], extras: [], overrides: {}, students: [] }));
@@ -614,7 +618,7 @@ app.addEventListener('click', ev => {
       case 'stats-ym': ui.statsYm = b.dataset.ym; render(); break;
       case 'stats-method': ui.statsMethod = b.dataset.m; render(); break;
       case 'debt-group': ui.debtGroup = b.dataset.g; render(); break;
-      case 'fix-fee': openGroup(b.dataset.g); groupSheet(true); break;
+      case 'fix-fee': if (data.groups.filter(g => !g.fee).length > 1) { go('settings'); setTimeout(() => { const i = $('#fee-all'); i?.scrollIntoView({ block: 'center' }); i?.focus(); }, 50); } else { openGroup(b.dataset.g); groupSheet(true); } break;
       case 'stats-pay': paySheet(b.dataset.g, b.dataset.s, Number(b.dataset.m)); break;
       case 'export-all': exportAll(); break;
       case 'print-all': printGroups(data.groups); break;
@@ -630,11 +634,23 @@ app.addEventListener('click', ev => {
 });
 app.addEventListener('input', ev => {
   const t = ev.target;
+  if (t.id === 'fee-all') { t.value = feeText(parseFee(t.value)); return; }
   if (t.id === 'q-home') { ui.homeQ = t.value; $('#home-body').innerHTML = homeBody(); }
   if (t.id === 'q-group') { ui.q = t.value; const g = group(); $('#fee-body').innerHTML = feeBody(g, calOf(g)); }
 });
 app.addEventListener('keydown', ev => { if (ev.key === 'Enter' && ev.target.type === 'search') ev.target.blur(); });
 app.addEventListener('change', ev => { if (ev.target.id === 'import-file') { importJson(ev.target.files[0]); ev.target.value = ''; } });
+app.addEventListener('submit', ev => {
+  if (ev.target.id !== 'fee-all-form') return;
+  ev.preventDefault();
+  const fee = parseFee(new FormData(ev.target).get('fee')), err = ev.target.querySelector('.error');
+  if (!fee) { err.textContent = 'Hãy nhập học phí.'; return; }
+  const n = data.groups.length, diff = data.groups.filter(g => g.fee && g.fee !== fee).length;
+  openSheet('Áp dụng học phí chung?', `<p>Đặt <b>${money(fee)}/tháng</b> cho cả <b>${n} nhóm</b>.${diff ? ` ${diff} nhóm đang có học phí khác sẽ được đổi; các lần đóng trước đó vẫn giữ đúng số tiền cũ.` : ''}</p><div class="pair"><button class="btn tonal" data-no>Hủy</button><button class="btn primary" data-yes>Áp dụng</button></div>`, root => {
+    root.querySelector('[data-no]').onclick = closeSheet;
+    root.querySelector('[data-yes]').onclick = () => { closeSheet(); commitUndoable(`Đã đặt học phí ${money(fee)} cho ${n} nhóm.`, d => { d.defaultFee = fee; for (const g of d.groups) C.setFee(g, fee); }); };
+  });
+});
 app.addEventListener('submit', async ev => {
   if (ev.target.id !== 'drive-form') return;
   ev.preventDefault();

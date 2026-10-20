@@ -1,5 +1,5 @@
 // Sổ lớp · bộ nhớ ngoại tuyến. Đổi VERSION mỗi lần cập nhật app để máy người dùng nhận bản mới.
-const VERSION = '2.1.0';
+const VERSION = '2.2.0';
 const CACHE = 'so-lop-' + VERSION;
 const ASSETS = ['./', './app.js', './core.js', './report.js', './sync.js', './xlsx.js', './style.css', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './icon-maskable.png', './apple-touch-icon.png'];
 
