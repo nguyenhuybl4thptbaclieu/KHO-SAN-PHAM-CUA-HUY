@@ -3,7 +3,7 @@ import { buildXlsx, XLSX_MIME } from './xlsx.js';
 import { feeSheet, scheduleSheet, paymentsSheet, printHtml, groupLine } from './report.js';
 import { createSync } from './sync.js';
 
-const KEY = 'so-lop-v2', OLD_KEY = 'so-lop-v1', APP_VERSION = '2.0';
+const KEY = 'so-lop-v2', OLD_KEY = 'so-lop-v1', APP_VERSION = '2.1';
 const $ = s => document.querySelector(s);
 const app = $('#app'), sheet = $('#sheet');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -51,7 +51,7 @@ const sync = createSync({
 });
 
 /* ================= Trạng thái giao diện ================= */
-const ui = { screen: 'groups', groupId: null, tab: 'fees', feeMonth: null, filter: 'all', q: '', view: 'list', calMonth: null, homeQ: '', statsYm: today().slice(0, 7), statsMethod: 'all' };
+const ui = { screen: 'groups', groupId: null, tab: 'fees', feeMonth: null, filter: 'all', q: '', view: 'list', calMonth: null, homeQ: '', statsYm: today().slice(0, 7), statsMethod: 'all', debtGroup: 'all' };
 const group = (id = ui.groupId) => data.groups.find(g => g.id === id);
 const calCache = new WeakMap();
 function calOf(g, min = 12) {
@@ -245,27 +245,41 @@ function calendarView(g, cal) {
 
 /* ---------- Thống kê ---------- */
 function statsView() {
-  const yms = [...new Set([today().slice(0, 7), ...C.paymentsIn(data, '').map(p => p.date.slice(0, 7))])].sort().reverse();
+  const allPays = C.paymentsIn(data, '');
+  const yms = [...new Set([today().slice(0, 7), ...allPays.map(p => p.date.slice(0, 7))])].sort().reverse();
   if (ui.statsYm !== 'all' && !yms.includes(ui.statsYm)) ui.statsYm = yms[0];
-  const all = C.paymentsIn(data, ui.statsYm === 'all' ? '' : ui.statsYm);
-  const ck = all.filter(p => p.method === 'CK'), tm = all.filter(p => p.method === 'TM');
-  const sum = a => a.reduce((s, p) => s + p.amount, 0), anyFee = data.groups.some(g => g.fee);
-  const list = ui.statsMethod === 'all' ? all : all.filter(p => p.method === ui.statsMethod);
-  const label = ym => ym === 'all' ? 'Tất cả' : `Th${Number(ym.slice(5))}/${ym.slice(0, 4)}`;
-  const overdue = data.groups.flatMap(g => C.overdueList(g, calOf(g)).map(o => ({ ...o, g })));
-  const byGroup = data.groups.map(g => ({ g, ck: ck.filter(p => p.group === g), tm: tm.filter(p => p.group === g) })).filter(x => x.ck.length || x.tm.length);
+  const sum = a => a.reduce((s, p) => s + p.amount, 0);
+  const split = a => ({ ck: a.filter(p => p.method === 'CK'), tm: a.filter(p => p.method === 'TM') });
+  const life = split(allPays);
+  const period = C.paymentsIn(data, ui.statsYm === 'all' ? '' : ui.statsYm), per = split(period);
+  const list = ui.statsMethod === 'all' ? period : period.filter(p => p.method === ui.statsMethod);
+  const label = ym => ym === 'all' ? 'Từ đầu' : `Th${Number(ym.slice(5))}/${ym.slice(0, 4)}`;
+  const longLabel = ym => ym === 'all' ? 'từ lúc bắt đầu' : `tháng ${Number(ym.slice(5))}/${ym.slice(0, 4)}`;
+  const noFee = data.groups.filter(g => !g.fee);
+  const byGroup = data.groups.map(g => { const x = period.filter(p => p.group === g), sp = split(x); return { g, all: x, ...sp }; }).filter(x => x.all.length);
+  // Học sinh còn nợ
+  const debts = [];
+  for (const g of data.groups) { const cal = calOf(g); for (const s of g.students) { const d = C.debtOf(g, s, cal); if (d.months.length || d.partial) debts.push({ g, s, ...d }); } }
+  if (ui.debtGroup !== 'all' && !data.groups.some(g => g.id === ui.debtGroup)) ui.debtGroup = 'all';
+  const debtList = debts.filter(d => ui.debtGroup === 'all' || d.g.id === ui.debtGroup).sort((a, b) => b.amount - a.amount || a.s.name.localeCompare(b.s.name, 'vi'));
+  const debtTotal = debtList.reduce((t, d) => t + d.amount, 0);
+  const debtWhat = d => [d.months.length ? 'T' + d.months.join(', T') : '', d.partial ? `${d.partial.sessions} buổi T${d.partial.month}` : ''].filter(Boolean).join(' + ');
   let lastDate = '';
-  return `<header class="bar"><div class="bar-row"><div><h1>Thống kê</h1><div class="sub">Học phí theo ngày đóng tiền</div></div>
+  return `<header class="bar"><div class="bar-row"><div><h1>Thống kê</h1><div class="sub">Học phí đã thu và còn nợ</div></div>
 <button class="round" data-action="export-all" aria-label="Xuất Excel tất cả nhóm">${ic('share')}</button></div></header>
 <main class="content">
-<div class="chips" data-keep="ym">${['all', ...yms].map(ym => `<button class="chip ${ui.statsYm === ym ? 'on' : ''}" data-action="stats-ym" data-ym="${ym}" data-focus="ym-${ym}">${label(ym)}</button>`).join('')}</div>
-<section class="tiles"><button class="tile ck ${ui.statsMethod === 'CK' ? 'on' : ''}" data-action="stats-method" data-m="CK" data-focus="sm-CK"><small>Chuyển khoản</small><b>${ck.length} <span>lượt</span></b>${anyFee ? `<em>${money(sum(ck))}</em>` : ''}</button>
-<button class="tile tm ${ui.statsMethod === 'TM' ? 'on' : ''}" data-action="stats-method" data-m="TM" data-focus="sm-TM"><small>Tiền mặt</small><b>${tm.length} <span>lượt</span></b>${anyFee ? `<em>${money(sum(tm))}</em>` : ''}</button></section>
-<div class="total-line">Tổng ${all.length} lượt${anyFee ? ` · ${money(sum(all))}` : ''}${ui.statsMethod !== 'all' ? ` · <button class="link" data-action="stats-method" data-m="all">Xem cả hai hình thức</button>` : ''}</div>
-${byGroup.length ? `<h2 class="section">Theo nhóm</h2><section class="list">${byGroup.map(x => `<div class="row static"><span class="row-main"><strong>${esc(x.g.name)}</strong><small>${x.g.fee ? money(sum(x.ck) + sum(x.tm)) : `${x.ck.length + x.tm.length} lượt`}</small></span><span class="tag ck">CK ${x.ck.length}</span><span class="tag tm">TM ${x.tm.length}</span></div>`).join('')}</section>` : ''}
-${overdue.length ? `<h2 class="section due-t">Chưa đóng · ${overdue.length} lượt</h2><section class="list">${overdue.map(o => `<button class="row" data-action="stats-pay" data-g="${esc(o.g.id)}" data-s="${esc(o.student.id)}" data-m="${o.month}"><span class="row-main"><strong>${esc(o.student.name)}</strong><small>${esc(o.g.name)} · Tháng ${o.month}</small></span><span class="tag due">Chưa đóng</span></button>`).join('')}</section>` : ''}
-<h2 class="section">${ui.statsMethod === 'CK' ? 'Các lượt chuyển khoản' : ui.statsMethod === 'TM' ? 'Các lượt tiền mặt' : 'Các lượt đóng tiền'}</h2>
-${list.length ? `<section class="list">${list.map(p => { const head = p.date !== lastDate ? `<div class="list-date">${WEEKDAY[C.weekday(p.date)]}, ${fmt(p.date)}</div>` : ''; lastDate = p.date; return `${head}<button class="row" data-action="stats-pay" data-g="${esc(p.group.id)}" data-s="${esc(p.student.id)}" data-m="${p.month}"><span class="row-main"><strong>${esc(p.student.name)}</strong><small>${esc(p.group.name)} · Tháng ${p.month}${p.amount ? ' · ' + money(p.amount) : ''}</small></span><span class="tag ${p.method === 'CK' ? 'ck' : 'tm'}">${p.method === 'CK' ? 'CK' : 'Tiền mặt'}</span></button>`; }).join('')}</section>` : `<p class="none">Chưa có lượt đóng tiền nào${ui.statsYm === 'all' ? '' : ' trong tháng này'}.</p>`}
+<section class="lifetime"><small>Tổng đã thu từ lúc bắt đầu</small><b>${money(sum(allPays))}</b><span class="lt-split"><span class="ck">CK ${money(sum(life.ck))}</span><span class="tm">Tiền mặt ${money(sum(life.tm))}</span></span><em>${allPays.length} lượt đóng</em></section>
+${noFee.length ? `<button class="banner warn" data-action="fix-fee" data-g="${esc(noFee[0].id)}">${noFee.length === 1 ? `Nhóm ${esc(noFee[0].name)}` : `${noFee.length} nhóm`} chưa nhập học phí nên chưa tính được tiền. Chạm để nhập.${ic('next', 'chev')}</button>` : ''}
+<h2 class="section">Theo tháng dương lịch</h2>
+<div class="chips" data-keep="ym">${[...yms, 'all'].map(ym => `<button class="chip ${ui.statsYm === ym ? 'on' : ''}" data-action="stats-ym" data-ym="${ym}" data-focus="ym-${ym}">${label(ym)}</button>`).join('')}</div>
+<div class="period-total">Đã thu ${longLabel(ui.statsYm)}: <b>${money(sum(period))}</b></div>
+<div class="seg small" role="group" aria-label="Chọn hình thức">${[['all', 'Tất cả', sum(period)], ['CK', 'Chuyển khoản', sum(per.ck)], ['TM', 'Tiền mặt', sum(per.tm)]].map(([k, l, v]) => `<button data-action="stats-method" data-m="${k}" data-focus="sm-${k}" class="${ui.statsMethod === k ? 'on' : ''}" aria-pressed="${ui.statsMethod === k}"><span class="seg-l">${l}</span><span class="seg-v">${money(v)}</span></button>`).join('')}</div>
+${byGroup.length ? `<h2 class="section">Theo nhóm · ${longLabel(ui.statsYm)}</h2><section class="list">${byGroup.map(x => `<div class="row static grow"><span class="row-main"><strong>${esc(x.g.name)}</strong><small>${x.all.length} lượt</small></span><span class="amt">${x.g.fee || x.all.some(p => p.amount) ? money(sum(x.all)) : '<small>Chưa có học phí</small>'}</span><span class="tags"><span class="tag ck">CK ${x.ck.length}</span><span class="tag tm">TM ${x.tm.length}</span></span></div>`).join('')}</section>` : ''}
+<h2 class="section due-t">Học sinh chưa đóng${debtList.length ? ` · ${debtList.length} em · ${money(debtTotal)}` : ''}</h2>
+${data.groups.length > 1 ? `<div class="chips" data-keep="debt">${[['all', 'Tất cả nhóm'], ...data.groups.map(g => [g.id, g.name])].map(([id, n]) => `<button class="chip small ${ui.debtGroup === id ? 'on' : ''}" data-action="debt-group" data-g="${esc(id)}" data-focus="dg-${esc(id)}">${esc(n)}</button>`).join('')}</div>` : ''}
+${debtList.length ? `<section class="list">${debtList.map(d => `<button class="row grow" data-action="stats-pay" data-g="${esc(d.g.id)}" data-s="${esc(d.s.id)}" data-m="${d.months[0] || d.partial.month}"><span class="row-main"><strong>${esc(d.s.name)}</strong><small>${esc(d.g.name)} · ${debtWhat(d)}</small></span><span class="amt due">${d.hasFee ? money(d.amount) : '<small>Chưa có học phí</small>'}</span><span class="tag due">Chưa đóng</span></button>`).join('')}</section>` : `<p class="none">Không có học sinh nào còn nợ.</p>`}
+<h2 class="section">${ui.statsMethod === 'CK' ? 'Các lượt chuyển khoản' : ui.statsMethod === 'TM' ? 'Các lượt tiền mặt' : 'Các lượt đóng tiền'} · ${longLabel(ui.statsYm)}</h2>
+${list.length ? `<section class="list">${list.map(p => { const head = p.date !== lastDate ? `<div class="list-date">${WEEKDAY[C.weekday(p.date)]}, ${fmt(p.date)}</div>` : ''; lastDate = p.date; return `${head}<button class="row" data-action="stats-pay" data-g="${esc(p.group.id)}" data-s="${esc(p.student.id)}" data-m="${p.month}"><span class="row-main"><strong>${esc(p.student.name)}</strong><small>${esc(p.group.name)} · Tháng ${p.month}${p.amount ? ' · ' + money(p.amount) : ''}</small></span><span class="tag ${p.method === 'CK' ? 'ck' : 'tm'}">${p.method === 'CK' ? 'CK' : 'Tiền mặt'}</span></button>`; }).join('')}</section>` : `<p class="none">Chưa có lượt đóng tiền nào.</p>`}
 ${data.groups.length ? `<div class="pair"><button class="btn tonal" data-action="export-all">${ic('share')} Xuất Excel</button><button class="btn tonal" data-action="print-all">${ic('print')} In bảng học phí</button></div>` : ''}
 </main>`;
 }
@@ -460,15 +474,19 @@ function paySheet(gid, sid, k) {
   const g = group(gid), s = g?.students.find(x => x.id === sid); if (!s) return;
   const cal = calOf(g), m = cal.months[k - 1], p = s.payments[k];
   openSheet(`Học phí tháng ${k}`, `<p class="sheet-sub"><b>${esc(s.name)}</b> · ${esc(g.name)}${m ? ` · ${fmtShort(m.first)}–${fmtShort(m.last)}` : ''}${g.fee ? ` · ${money(g.fee)}` : ''}</p>
-<label class="field"><span>Ngày đóng</span><input id="pay-date" type="date" required value="${p?.date || today()}"></label>
+<div class="field-row"><label class="field"><span>Ngày đóng</span><input id="pay-date" type="date" required value="${p?.date || today()}"></label>
+<label class="field"><span>Số tiền</span><input id="pay-amount" name="fee" inputmode="numeric" placeholder="${g.fee ? '' : 'Chưa có học phí'}" value="${feeText(p ? C.payAmount(g, p) : g.fee)}"><em class="suffix">đ</em></label></div>
 <div class="field"><span>Chạm hình thức để lưu</span><div class="paybtns"><button class="paybtn ck ${p?.method === 'CK' ? 'on' : ''}" data-method="CK">${p?.method === 'CK' ? ic('check') : ''}Chuyển khoản</button><button class="paybtn tm ${p?.method === 'TM' ? 'on' : ''}" data-method="TM">${p?.method === 'TM' ? ic('check') : ''}Tiền mặt</button></div></div>
 ${errBox}${p ? `<button class="btn tonal danger wide" data-clear>${ic('trash')} Xóa ngày đóng</button>` : ''}`, root => {
+    bindFee(root);
     root.querySelectorAll('[data-method]').forEach(b => b.addEventListener('click', () => {
       const date = root.querySelector('#pay-date').value, method = b.dataset.method;
       if (!C.validDate(date)) { root.querySelector('.error').textContent = 'Hãy chọn ngày đóng.'; return; }
-      try { commit(d => { d.groups.find(x => x.id === gid).students.find(x => x.id === sid).payments[k] = { date, method }; }); }
+      const amount = parseFee(root.querySelector('#pay-amount').value);
+      const rec = amount === null ? { date, method } : { date, method, amount };
+      try { commit(d => { d.groups.find(x => x.id === gid).students.find(x => x.id === sid).payments[k] = rec; }); }
       catch (e) { root.querySelector('.error').textContent = e.message; return; }
-      closeSheet(); toast(`${s.name} · Tháng ${k} · ${method === 'CK' ? 'Chuyển khoản' : 'Tiền mặt'} ${fmtShort(date)}`);
+      closeSheet(); toast(`${s.name} · Tháng ${k} · ${method === 'CK' ? 'Chuyển khoản' : 'Tiền mặt'}${amount ? ' ' + money(amount) : ''} · ${fmtShort(date)}`);
     }));
     root.querySelector('[data-clear]')?.addEventListener('click', () => { closeSheet(); commitUndoable(`Đã xóa ngày đóng tháng ${k} của ${s.name}.`, d => { delete d.groups.find(x => x.id === gid).students.find(x => x.id === sid).payments[k]; }); });
   });
@@ -594,7 +612,9 @@ app.addEventListener('click', ev => {
       case 'add-extra': extraSheet(); break;
       case 'change-schedule': scheduleSheet2(); break;
       case 'stats-ym': ui.statsYm = b.dataset.ym; render(); break;
-      case 'stats-method': ui.statsMethod = ui.statsMethod === b.dataset.m ? 'all' : b.dataset.m; render(); break;
+      case 'stats-method': ui.statsMethod = b.dataset.m; render(); break;
+      case 'debt-group': ui.debtGroup = b.dataset.g; render(); break;
+      case 'fix-fee': openGroup(b.dataset.g); groupSheet(true); break;
       case 'stats-pay': paySheet(b.dataset.g, b.dataset.s, Number(b.dataset.m)); break;
       case 'export-all': exportAll(); break;
       case 'print-all': printGroups(data.groups); break;

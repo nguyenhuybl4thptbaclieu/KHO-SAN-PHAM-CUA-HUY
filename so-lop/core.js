@@ -126,16 +126,33 @@ export function monthSummary(group, month, current) {
     const st = payState(s, month, current);
     if (st === 'na') continue;
     r.students++;
-    if (st === 'paid') { const p = s.payments[month.number]; r.paid++; r[p.method]++; if (group.fee) r['amount' + p.method] += group.fee; }
+    if (st === 'paid') { const p = s.payments[month.number]; r.paid++; r[p.method]++; r['amount' + p.method] += payAmount(group, p); }
     else r[st]++;
   }
   return r;
+}
+/** Số tiền của một lượt đóng: số đã lưu, nếu không có thì lấy học phí nhóm. */
+export function payAmount(group, p) { return Number.isInteger(p.amount) ? p.amount : (group.fee || 0); }
+/** Học sinh còn nợ: tháng đã kết thúc chưa đóng + buổi đã dạy của tháng đang học (học phí ÷ 8 mỗi buổi). */
+export function debtOf(group, student, cal) {
+  const fee = group.fee || 0, months = [];
+  let amount = 0, partial = null;
+  for (const m of cal.months) {
+    if (m.number >= cal.current) break;
+    if (payState(student, m, cal.current) === 'overdue') { months.push(m.number); amount += fee; }
+  }
+  const cm = cal.months[cal.current - 1];
+  if (cm && !student.payments[cm.number]) {
+    const sessions = cm.rows.filter(r => r.status === 'done' && r.date >= student.joined).length;
+    if (sessions) { partial = { month: cm.number, sessions }; amount += sessions * fee / PER_MONTH; }
+  }
+  return { months, partial, amount, hasFee: !!group.fee };
 }
 /** Các lượt đóng tiền có ngày đóng trong tháng dương lịch 'YYYY-MM' (hoặc tất cả nếu ym rỗng). */
 export function paymentsIn(data, ym) {
   const out = [];
   for (const g of data.groups) for (const s of g.students) for (const [m, p] of Object.entries(s.payments))
-    if (!ym || p.date.startsWith(ym)) out.push({ group: g, student: s, month: Number(m), date: p.date, method: p.method, amount: g.fee || 0 });
+    if (!ym || p.date.startsWith(ym)) out.push({ group: g, student: s, month: Number(m), date: p.date, method: p.method, amount: payAmount(g, p) });
   return out.sort((a, b) => b.date.localeCompare(a.date) || a.student.name.localeCompare(b.student.name, 'vi'));
 }
 
@@ -195,7 +212,7 @@ function validateStrict(data) {
     for (const s of g.students) {
       id(s.id); name(s.name);
       if (!validDate(s.joined) || !obj(s.payments)) throw Error('Dữ liệu học sinh không hợp lệ.');
-      for (const [m, p] of Object.entries(s.payments)) if (!/^[1-9]\d{0,2}$/.test(m) || !obj(p) || !validDate(p.date) || !['CK', 'TM'].includes(p.method)) throw Error('Học phí không hợp lệ.');
+      for (const [m, p] of Object.entries(s.payments)) if (!/^[1-9]\d{0,2}$/.test(m) || !obj(p) || !validDate(p.date) || !['CK', 'TM'].includes(p.method) || (p.amount !== undefined && !(Number.isInteger(p.amount) && p.amount >= 0 && p.amount <= 1e9))) throw Error('Học phí không hợp lệ.');
     }
   }
   return data;

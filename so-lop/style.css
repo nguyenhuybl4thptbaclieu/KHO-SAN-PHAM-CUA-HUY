@@ -353,3 +353,26 @@ dialog#sheet::backdrop { background: rgba(4, 14, 12, .45); }
   .print-page th small, .print-page td small { font-weight: 400; color: #555; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* ---- Thống kê tiền ---- */
+.lifetime { display: flex; flex-direction: column; gap: 2px; background: var(--brand); color: #fff; border-radius: 20px; padding: 16px 18px; margin-top: 4px; }
+.lifetime small { font-size: 13px; opacity: .85; font-weight: 600; }
+.lifetime b { font-size: 32px; font-weight: 750; letter-spacing: -.8px; }
+.lifetime em { font-style: normal; font-size: 13px; opacity: .8; }
+.lt-split { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 2px; }
+.lt-split span { background: rgba(255, 255, 255, .16); border-radius: 9px; padding: 5px 9px; font-size: 14px; font-weight: 650; }
+.banner.warn { background: var(--tm-bg); color: var(--tm); margin-top: 12px; }
+.period-total { margin: 6px 4px 0; font-size: 16px; }
+.period-total b { font-size: 20px; }
+.seg button { display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.2; padding: 4px 2px; }
+.seg .seg-l { font-size: 13px; }
+.seg .seg-v { font-size: 13px; font-weight: 700; color: var(--text); }
+.seg button.on .seg-v { color: var(--brand); }
+@media (prefers-color-scheme: dark) { .seg button.on .seg-v { color: var(--accent); } }
+.row.grow .row-main { flex: 1 1 auto; }
+.amt { font-weight: 750; font-size: 16px; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+.amt small { font-weight: 500; color: var(--muted); font-size: 12px; white-space: normal; }
+.amt.due { color: var(--due); }
+.tags { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.tags .tag { text-align: center; }
+.chip.small { min-height: 38px; min-width: 0; font-size: 14px; font-weight: 600; padding: 6px 12px; }
